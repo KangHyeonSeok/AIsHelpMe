@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AIsHelpMe - Gemini & ChatGPT Consensus Bridge
 // @namespace    https://github.com/KangHyeonSeok/AIsHelpMe
-// @version      1.0.0
+// @version      1.0.1
 // @description  Zero-cost consensus bridge between Gemini and ChatGPT for multi-LLM synergy
 // @author       KangHyeonSeok
 // @match        https://gemini.google.com/*
