@@ -49,8 +49,11 @@
         DELAYS: {
             RESPONSE_CHECK: 2000,
             PASTE_DELAY: 1000,
-            POLLING_INTERVAL: 1000
-        }
+            POLLING_INTERVAL: 1000,
+            WORKFLOW_TIMEOUT: 120000,
+            INIT_DELAY: 2000
+        },
+        MIN_RESPONSE_LENGTH: 50
     };
 
     // ========== Utility Functions ==========
@@ -347,7 +350,7 @@
         // Wait for response to appear
         setTimeout(() => {
             const response = extractGeminiResponse();
-            if (response && response.length > 50) {
+            if (response && response.length > CONFIG.MIN_RESPONSE_LENGTH) {
                 log('Draft extracted from Gemini');
                 setDraft(response);
                 setState(CONFIG.STATES.WAITING_FOR_CRITIQUE);
@@ -386,7 +389,7 @@
                     }
                     
                     const response = extractChatGPTResponse();
-                    if (response && response.length > 50) {
+                    if (response && response.length > CONFIG.MIN_RESPONSE_LENGTH) {
                         log('Critique extracted from ChatGPT');
                         setCritique(response);
                         setState(CONFIG.STATES.WAITING_FOR_FINAL);
@@ -395,8 +398,8 @@
                     }
                 }, CONFIG.DELAYS.POLLING_INTERVAL);
                 
-                // Clear interval after 2 minutes
-                setTimeout(() => clearInterval(checkInterval), 120000);
+                // Clear interval after timeout
+                setTimeout(() => clearInterval(checkInterval), CONFIG.DELAYS.WORKFLOW_TIMEOUT);
             }
         }, CONFIG.DELAYS.PASTE_DELAY);
     }
@@ -433,7 +436,7 @@
                     }
                     
                     const response = extractGeminiResponse();
-                    if (response && response.length > 50 && response !== draft) {
+                    if (response && response.length > CONFIG.MIN_RESPONSE_LENGTH && response !== draft) {
                         log('Final answer received from Gemini');
                         clearInterval(checkInterval);
                         setState(CONFIG.STATES.IDLE);
@@ -444,8 +447,8 @@
                     }
                 }, CONFIG.DELAYS.POLLING_INTERVAL);
                 
-                // Clear interval after 2 minutes
-                setTimeout(() => clearInterval(checkInterval), 120000);
+                // Clear interval after timeout
+                setTimeout(() => clearInterval(checkInterval), CONFIG.DELAYS.WORKFLOW_TIMEOUT);
             }
         }, CONFIG.DELAYS.PASTE_DELAY);
     }
@@ -529,7 +532,7 @@
             }
             
             log('Initialization complete');
-        }, 2000);
+        }, CONFIG.DELAYS.INIT_DELAY);
     }
 
     // Start the script
