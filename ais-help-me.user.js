@@ -394,6 +394,59 @@
         return true;
     }
 
+    // ========== Button Click Functions ==========
+    function clickGeminiSendButton() {
+        log('Attempting to click Gemini send button');
+
+        const selectors = [
+            'button[aria-label*="Send"]',
+            'button[aria-label*="보내기"]',
+            'button.send-button',
+            'button[type="submit"]'
+        ];
+
+        for (const selector of selectors) {
+            const button = document.querySelector(selector);
+            if (button && !button.disabled) {
+                log(`✓ Found send button with selector: ${selector}`);
+                setTimeout(() => {
+                    button.click();
+                    log('✓ Gemini send button clicked');
+                }, 500);
+                return true;
+            }
+        }
+
+        log('❌ Could not find enabled Gemini send button');
+        return false;
+    }
+
+    function clickChatGPTSendButton() {
+        log('Attempting to click ChatGPT send button');
+
+        const selectors = [
+            'button[data-testid="send-button"]',
+            'button[aria-label*="Send"]',
+            'button.send-button',
+            'button[type="submit"]'
+        ];
+
+        for (const selector of selectors) {
+            const button = document.querySelector(selector);
+            if (button && !button.disabled) {
+                log(`✓ Found send button with selector: ${selector}`);
+                setTimeout(() => {
+                    button.click();
+                    log('✓ ChatGPT send button clicked');
+                }, 500);
+                return true;
+            }
+        }
+
+        log('❌ Could not find enabled ChatGPT send button');
+        return false;
+    }
+
     // ========== Main Workflow Functions ==========
 
     // Step 1: Extract Draft from Gemini
@@ -434,30 +487,60 @@
 
             const success = insertTextIntoChatGPT(critiquePrompt);
             if (success) {
-                showStatus('✓ Critique request ready! Click Send button.', 0);
+                showStatus('✓ Critique request ready! Auto-sending...', 2000);
 
-                // Monitor for ChatGPT response
-                const checkInterval = setInterval(() => {
-                    const currentState = getState();
-                    if (currentState !== CONFIG.STATES.WAITING_FOR_CRITIQUE) {
-                        clearInterval(checkInterval);
-                        return;
+                // Auto-click send button
+                setTimeout(() => {
+                    if (clickChatGPTSendButton()) {
+                        showStatus('⏳ Waiting for ChatGPT response...', 0);
+                        monitorChatGPTResponse();
+                    } else {
+                        showStatus('⚠️ Could not click Send. Please click manually.', 0);
+                        // Fallback: still monitor for response
+                        monitorChatGPTResponse();
                     }
+                }, 1500);
+            }
+        }, CONFIG.DELAYS.PASTE_DELAY);
+    }
 
-                    const response = extractChatGPTResponse();
-                    if (response && response.length > CONFIG.MIN_RESPONSE_LENGTH) {
-                        log('Critique extracted from ChatGPT');
+    function monitorChatGPTResponse() {
+        let lastLength = 0;
+        let stableCount = 0;
+        const stabilityThreshold = 3; // 3 consecutive checks with same length
+
+        const checkInterval = setInterval(() => {
+            const currentState = getState();
+            if (currentState !== CONFIG.STATES.WAITING_FOR_CRITIQUE) {
+                clearInterval(checkInterval);
+                return;
+            }
+
+            const response = extractChatGPTResponse();
+
+            if (response && response.length > CONFIG.MIN_RESPONSE_LENGTH) {
+                // Check if response length is stable
+                if (response.length === lastLength) {
+                    stableCount++;
+                    log(`Response length stable (${stableCount}/${stabilityThreshold}): ${response.length} chars`);
+
+                    if (stableCount >= stabilityThreshold) {
+                        log('✓ Response complete, capturing critique');
                         setCritique(response);
                         setState(CONFIG.STATES.WAITING_FOR_FINAL);
                         clearInterval(checkInterval);
                         showStatus('✓ Critique captured! Return to Gemini tab.', 0);
                     }
-                }, CONFIG.DELAYS.POLLING_INTERVAL);
-
-                // Clear interval after timeout
-                setTimeout(() => clearInterval(checkInterval), CONFIG.DELAYS.WORKFLOW_TIMEOUT);
+                } else {
+                    stableCount = 0;
+                    lastLength = response.length;
+                    log(`Response in progress: ${response.length} chars`);
+                }
             }
-        }, CONFIG.DELAYS.PASTE_DELAY);
+        }, CONFIG.DELAYS.POLLING_INTERVAL);
+
+        // Clear interval after timeout
+        setTimeout(() => clearInterval(checkInterval), CONFIG.DELAYS.WORKFLOW_TIMEOUT);
     }
 
     // Step 3: Send Critique back to Gemini for Final Answer
@@ -481,19 +564,46 @@
 
             const success = insertTextIntoGemini(finalPrompt);
             if (success) {
-                showStatus('✓ Final synthesis request ready! Click Send.', 0);
+                showStatus('✓ Final synthesis ready! Auto-sending...', 2000);
 
-                // Monitor for final response
-                const checkInterval = setInterval(() => {
-                    const currentState = getState();
-                    if (currentState !== CONFIG.STATES.WAITING_FOR_FINAL) {
-                        clearInterval(checkInterval);
-                        return;
+                // Auto-click send button
+                setTimeout(() => {
+                    if (clickGeminiSendButton()) {
+                        showStatus('⏳ Waiting for final response...', 0);
+                        monitorGeminiFinalResponse();
+                    } else {
+                        showStatus('⚠️ Could not click Send. Please click manually.', 0);
+                        // Fallback: still monitor for response
+                        monitorGeminiFinalResponse();
                     }
+                }, 1500);
+            }
+        }, CONFIG.DELAYS.PASTE_DELAY);
+    }
 
-                    const response = extractGeminiResponse();
-                    if (response && response.length > CONFIG.MIN_RESPONSE_LENGTH && response !== draft) {
-                        log('Final answer received from Gemini');
+    function monitorGeminiFinalResponse() {
+        const draftResponse = getDraft();
+        let lastLength = 0;
+        let stableCount = 0;
+        const stabilityThreshold = 3; // 3 consecutive checks with same length
+
+        const checkInterval = setInterval(() => {
+            const currentState = getState();
+            if (currentState !== CONFIG.STATES.WAITING_FOR_FINAL) {
+                clearInterval(checkInterval);
+                return;
+            }
+
+            const response = extractGeminiResponse();
+
+            if (response && response.length > CONFIG.MIN_RESPONSE_LENGTH && response !== draftResponse) {
+                // Check if response length is stable
+                if (response.length === lastLength) {
+                    stableCount++;
+                    log(`Final response length stable (${stableCount}/${stabilityThreshold}): ${response.length} chars`);
+
+                    if (stableCount >= stabilityThreshold) {
+                        log('✓ Final response complete');
                         clearInterval(checkInterval);
                         setState(CONFIG.STATES.IDLE);
                         showStatus('✅ Consensus flow complete!', 5000);
@@ -501,12 +611,16 @@
                             clearAllStorage();
                         }, 5000);
                     }
-                }, CONFIG.DELAYS.POLLING_INTERVAL);
-
-                // Clear interval after timeout
-                setTimeout(() => clearInterval(checkInterval), CONFIG.DELAYS.WORKFLOW_TIMEOUT);
+                } else {
+                    stableCount = 0;
+                    lastLength = response.length;
+                    log(`Final response in progress: ${response.length} chars`);
+                }
             }
-        }, CONFIG.DELAYS.PASTE_DELAY);
+        }, CONFIG.DELAYS.POLLING_INTERVAL);
+
+        // Clear interval after timeout
+        setTimeout(() => clearInterval(checkInterval), CONFIG.DELAYS.WORKFLOW_TIMEOUT);
     }
 
     // ========== Event Listeners ==========
@@ -606,7 +720,7 @@
 
     // Expose debug object
     window.AIsHelpMe = {
-        version: '1.0.2',
+        version: '1.0.3',
         getState: () => {
             return {
                 currentState: getState(),
@@ -641,6 +755,15 @@
                 const el = document.querySelector(sel);
                 console.log(`  Selector: ${sel}`, el);
             });
+        },
+        // Send button test methods
+        testGeminiSendButton: () => {
+            console.log('[AIsHelpMe] Testing Gemini send button...');
+            return clickGeminiSendButton();
+        },
+        testChatGPTSendButton: () => {
+            console.log('[AIsHelpMe] Testing ChatGPT send button...');
+            return clickChatGPTSendButton();
         }
     };
 
