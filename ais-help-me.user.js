@@ -68,8 +68,14 @@
 
     function getCurrentPlatform() {
         const hostname = window.location.hostname;
-        if (hostname.includes('gemini.google.com')) return 'gemini';
-        if (hostname.includes('chatgpt.com') || hostname.includes('chat.openai.com')) return 'chatgpt';
+        // Use exact hostname match or subdomain match for security
+        if (hostname === 'gemini.google.com' || hostname.endsWith('.gemini.google.com')) {
+            return 'gemini';
+        }
+        if (hostname === 'chatgpt.com' || hostname.endsWith('.chatgpt.com') ||
+            hostname === 'chat.openai.com' || hostname.endsWith('.chat.openai.com')) {
+            return 'chatgpt';
+        }
         return null;
     }
 
