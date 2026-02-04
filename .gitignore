@@ -1,0 +1,48 @@
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+
+# IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+.sublime-*
+
+# Log Files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temporary Files
+*.tmp
+*.temp
+.temp/
+.tmp/
+/tmp/
+
+# Node modules (if development tools are used)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Build/Dist (not typically needed for UserScripts, but just in case)
+dist/
+build/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
