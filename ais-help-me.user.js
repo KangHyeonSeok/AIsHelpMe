@@ -68,12 +68,15 @@
 
     function getCurrentPlatform() {
         const hostname = window.location.hostname;
+        const href = window.location.href;
+
         // Use exact hostname match or subdomain match for security
-        if (hostname === 'gemini.google.com' || hostname.endsWith('.gemini.google.com')) {
+        if (hostname === 'gemini.google.com' || hostname.endsWith('.gemini.google.com') || href.includes('gemini.google.com')) {
             return 'gemini';
         }
         if (hostname === 'chatgpt.com' || hostname.endsWith('.chatgpt.com') ||
-            hostname === 'chat.openai.com' || hostname.endsWith('.chat.openai.com')) {
+            hostname === 'chat.openai.com' || hostname.endsWith('.chat.openai.com') ||
+            href.includes('chatgpt.com') || href.includes('chat.openai.com')) {
             return 'chatgpt';
         }
         return null;
@@ -172,42 +175,54 @@
     }
 
     function createControlPanel() {
+        // Check if already exists
+        if (document.getElementById('ais-control-panel')) {
+            log('Control panel already exists');
+            return;
+        }
+
         const panel = document.createElement('div');
         panel.id = 'ais-control-panel';
         panel.style.cssText = `
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: white;
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            z-index: 999999;
-            font-family: system-ui, -apple-system, sans-serif;
-            font-size: 13px;
+            position: fixed !important;
+            bottom: 20px !important;
+            right: 20px !important;
+            background: white !important;
+            padding: 15px !important;
+            border-radius: 8px !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+            z-index: 2147483647 !important;
+            font-family: system-ui, -apple-system, sans-serif !important;
+            font-size: 13px !important;
+            display: block !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+            pointer-events: auto !important;
         `;
 
         const title = document.createElement('div');
         title.textContent = 'AIsHelpMe Control';
         title.style.cssText = `
-            font-weight: 600;
-            margin-bottom: 10px;
-            color: #333;
+            font-weight: 600 !important;
+            margin-bottom: 10px !important;
+            color: #333 !important;
+            display: block !important;
         `;
         panel.appendChild(title);
 
         const startButton = document.createElement('button');
         startButton.textContent = 'Start Consensus Flow';
         startButton.style.cssText = `
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-            margin-right: 8px;
-            font-size: 13px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+            color: white !important;
+            border: none !important;
+            padding: 8px 16px !important;
+            border-radius: 6px !important;
+            cursor: pointer !important;
+            font-weight: 500 !important;
+            margin-right: 8px !important;
+            font-size: 13px !important;
+            display: inline-block !important;
         `;
         startButton.onclick = () => {
             const platform = getCurrentPlatform();
@@ -223,14 +238,15 @@
         const resetButton = document.createElement('button');
         resetButton.textContent = 'Reset';
         resetButton.style.cssText = `
-            background: #6c757d;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-            font-size: 13px;
+            background: #6c757d !important;
+            color: white !important;
+            border: none !important;
+            padding: 8px 16px !important;
+            border-radius: 6px !important;
+            cursor: pointer !important;
+            font-weight: 500 !important;
+            font-size: 13px !important;
+            display: inline-block !important;
         `;
         resetButton.onclick = () => {
             clearAllStorage();
@@ -239,6 +255,14 @@
         panel.appendChild(resetButton);
 
         document.body.appendChild(panel);
+
+        // Verify it was added
+        const added = document.getElementById('ais-control-panel');
+        if (added) {
+            log('✅ Control panel successfully added to DOM');
+        } else {
+            console.error('[AIsHelpMe] ❌ Failed to add control panel to DOM');
+        }
     }
 
     // ========== Content Extraction ==========
@@ -504,22 +528,32 @@
     }
 
     // ========== Initialization ==========
-    function init() {
+    // ========== Initialization ==========
+    async function init() {
         const platform = getCurrentPlatform();
         log('Initializing on platform:', platform);
-        
+        log('Current URL:', window.location.href);
+
         if (!platform) {
-            log('Not on a supported platform');
+            log('❌ Not on a supported platform');
+            console.error('[AIsHelpMe] Platform detection failed. Current hostname:', window.location.hostname);
             return;
         }
-        
-        // Wait for page to be fully loaded
-        setTimeout(() => {
-            createControlPanel();
-            
+
+        try {
+            // Wait for body to be ready
+            await waitForElement('body', 10000);
+            log('✓ Document body ready');
+
+            // Create UI with a slight delay to ensure other frameworks are loaded
+            setTimeout(() => {
+                createControlPanel();
+                log('✓ Control panel initialization triggered');
+            }, 1000);
+
             if (platform === 'gemini') {
                 setupGeminiListeners();
-                
+
                 const state = getState();
                 if (state === CONFIG.STATES.WAITING_FOR_FINAL) {
                     showStatus('💡 Awaiting final synthesis...', 0);
@@ -529,16 +563,51 @@
                 }
             } else if (platform === 'chatgpt') {
                 setupChatGPTListeners();
-                
+
                 const state = getState();
                 if (state === CONFIG.STATES.WAITING_FOR_CRITIQUE) {
                     showStatus('💡 Ready to send for critique...', 0);
                     handleChatGPTCritique();
                 }
             }
-            
+
             log('Initialization complete');
-        }, CONFIG.DELAYS.INIT_DELAY);
+        } catch (error) {
+            console.error('[AIsHelpMe] Initialization failed:', error);
+            // Retry after 5 seconds
+            setTimeout(init, 5000);
+        }
+    }
+
+    // Expose debug object
+    window.AIsHelpMe = {
+        version: '1.0.1',
+        getState: () => {
+            return {
+                currentState: getState(),
+                platform: getCurrentPlatform(),
+                draft: getDraftLength(getDraft()),
+                critique: getDraftLength(getCritique()),
+                panelExists: !!document.getElementById('ais-control-panel')
+            };
+        },
+        forceShowPanel: () => {
+            const panel = document.getElementById('ais-control-panel');
+            if (panel) {
+                panel.style.display = 'block';
+                log('Panel visibility forced');
+            } else {
+                createControlPanel();
+            }
+        },
+        reset: () => {
+            clearAllStorage();
+            location.reload();
+        }
+    };
+    
+    function getDraftLength(text) {
+        return text ? text.length + ' chars' : 'null';
     }
 
     // Start the script
