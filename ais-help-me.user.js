@@ -201,7 +201,7 @@
         `;
 
         const title = document.createElement('div');
-        title.textContent = 'AIsHelpMe Control';
+        title.textContent = 'AIsHelpMe';
         title.style.cssText = `
             font-weight: 600 !important;
             margin-bottom: 10px !important;
@@ -211,7 +211,7 @@
         panel.appendChild(title);
 
         const startButton = document.createElement('button');
-        startButton.textContent = 'Start Consensus Flow';
+        startButton.textContent = 'Start';
         startButton.style.cssText = `
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
             color: white !important;
