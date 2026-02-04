@@ -454,18 +454,50 @@
         const state = getState();
         if (state !== CONFIG.STATES.WAITING_FOR_DRAFT) return;
 
-        log('Checking for Gemini draft response');
+        log('Monitoring for Gemini draft response...');
+        showStatus('⏳ Waiting for Gemini response...', 0);
 
-        // Wait for response to appear
-        setTimeout(() => {
-            const response = extractGeminiResponse();
-            if (response && response.length > CONFIG.MIN_RESPONSE_LENGTH) {
-                log('Draft extracted from Gemini');
-                setDraft(response);
-                setState(CONFIG.STATES.WAITING_FOR_CRITIQUE);
-                showStatus('✓ Draft captured! Now open ChatGPT tab.', 0);
+        // Start monitoring immediately
+        monitorGeminiDraftResponse();
+    }
+
+    function monitorGeminiDraftResponse() {
+        let lastLength = 0;
+        let stableCount = 0;
+        const stabilityThreshold = 3; // 3 consecutive checks with same length
+
+        const checkInterval = setInterval(() => {
+            const currentState = getState();
+            if (currentState !== CONFIG.STATES.WAITING_FOR_DRAFT) {
+                clearInterval(checkInterval);
+                return;
             }
-        }, CONFIG.DELAYS.RESPONSE_CHECK);
+
+            const response = extractGeminiResponse();
+
+            if (response && response.length > CONFIG.MIN_RESPONSE_LENGTH) {
+                // Check if response length is stable
+                if (response.length === lastLength) {
+                    stableCount++;
+                    log(`Draft length stable (${stableCount}/${stabilityThreshold}): ${response.length} chars`);
+
+                    if (stableCount >= stabilityThreshold) {
+                        log('✓ Draft complete, capturing');
+                        setDraft(response);
+                        setState(CONFIG.STATES.WAITING_FOR_CRITIQUE);
+                        clearInterval(checkInterval);
+                        showStatus('✓ Draft captured! Now open ChatGPT tab.', 0);
+                    }
+                } else {
+                    stableCount = 0;
+                    lastLength = response.length;
+                    log(`Draft in progress: ${response.length} chars`);
+                }
+            }
+        }, CONFIG.DELAYS.POLLING_INTERVAL);
+
+        // Clear interval after timeout
+        setTimeout(() => clearInterval(checkInterval), CONFIG.DELAYS.WORKFLOW_TIMEOUT);
     }
 
     // Step 2: Send Draft to ChatGPT for Critique
@@ -627,14 +659,13 @@
     function setupGeminiListeners() {
         log('Setting up Gemini listeners');
 
-        // Listen for state changes
+        // Listen for state changes (both local and remote)
         GM_addValueChangeListener(CONFIG.STORAGE_KEYS.STATE, (name, oldValue, newValue, remote) => {
-            if (remote) {
-                log('State changed remotely:', newValue);
+            log('State changed:', { newValue, remote, source: remote ? 'remote' : 'local' });
 
-                if (newValue === CONFIG.STATES.WAITING_FOR_FINAL) {
-                    handleGeminiFinal();
-                }
+            if (newValue === CONFIG.STATES.WAITING_FOR_FINAL) {
+                log('Triggering Gemini final handler');
+                handleGeminiFinal();
             }
         });
 
@@ -720,7 +751,7 @@
 
     // Expose debug object
     window.AIsHelpMe = {
-        version: '1.0.3',
+        version: '1.0.4',
         getState: () => {
             return {
                 currentState: getState(),
