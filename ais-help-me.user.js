@@ -16,7 +16,7 @@
 // @run-at       document-idle
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
     // ========== Configuration ==========
@@ -159,7 +159,7 @@
         }
         indicator.textContent = message;
         indicator.style.display = 'block';
-        
+
         if (duration > 0) {
             setTimeout(() => {
                 indicator.style.display = 'none';
@@ -269,7 +269,7 @@
     function waitForElement(selector, timeout = 10000) {
         return new Promise((resolve, reject) => {
             const startTime = Date.now();
-            
+
             const checkElement = () => {
                 const element = document.querySelector(selector);
                 if (element) {
@@ -280,7 +280,7 @@
                     setTimeout(checkElement, CONFIG.DELAYS.POLLING_INTERVAL);
                 }
             };
-            
+
             checkElement();
         });
     }
@@ -292,7 +292,7 @@
             '[data-response-chunk]',
             '.response-container-content'
         ];
-        
+
         for (const selector of selectors) {
             const elements = document.querySelectorAll(selector);
             if (elements.length > 0) {
@@ -303,7 +303,7 @@
                 }
             }
         }
-        
+
         return null;
     }
 
@@ -320,63 +320,89 @@
     // ========== Text Insertion ==========
     function insertTextIntoGemini(text) {
         log('Inserting text into Gemini');
-        
+
         // Find the textarea element
         const richTextarea = document.querySelector('rich-textarea');
         if (!richTextarea) {
             log('Could not find Gemini textarea');
             return false;
         }
-        
+
         // Find the actual editable element inside rich-textarea
         const editableDiv = richTextarea.querySelector('.ql-editor, [contenteditable="true"]');
         if (!editableDiv) {
             log('Could not find editable element in Gemini');
             return false;
         }
-        
+
         // Set the text
         editableDiv.innerHTML = '';
         editableDiv.textContent = text;
-        
+
         // Trigger input events
         editableDiv.dispatchEvent(new Event('input', { bubbles: true }));
         editableDiv.dispatchEvent(new Event('change', { bubbles: true }));
-        
+
         log('Text inserted into Gemini');
         return true;
     }
 
     function insertTextIntoChatGPT(text) {
         log('Inserting text into ChatGPT');
-        
-        // Find the textarea
-        const textarea = document.querySelector('#prompt-textarea');
+
+        // Try multiple selectors
+        const selectors = [
+            '#prompt-textarea',
+            'textarea[placeholder*="Message"]',
+            'textarea',
+            '[contenteditable="true"]'
+        ];
+
+        let textarea = null;
+        for (const selector of selectors) {
+            textarea = document.querySelector(selector);
+            if (textarea) {
+                log(`✓ Found textarea with selector: ${selector}`);
+                break;
+            }
+        }
+
         if (!textarea) {
-            log('Could not find ChatGPT textarea');
+            log('❌ Could not find ChatGPT textarea with any selector');
+            console.error('[AIsHelpMe] Available textareas:', document.querySelectorAll('textarea'));
+            console.error('[AIsHelpMe] Available contenteditable:', document.querySelectorAll('[contenteditable="true"]'));
+            showStatus('⚠ Could not find input field. Please paste manually.', 5000);
             return false;
         }
-        
+
         // Set the value
-        textarea.value = text;
-        
-        // Trigger input events to enable send button
+        if (textarea.tagName === 'TEXTAREA') {
+            textarea.value = text;
+        } else {
+            // For contenteditable elements
+            textarea.textContent = text;
+        }
+        textarea.focus();
+
+        // Trigger multiple events to ensure the UI updates
         textarea.dispatchEvent(new Event('input', { bubbles: true }));
         textarea.dispatchEvent(new Event('change', { bubbles: true }));
-        
-        log('Text inserted into ChatGPT');
+        textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+        textarea.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
+
+        log('✓ Text inserted into ChatGPT');
         return true;
     }
 
     // ========== Main Workflow Functions ==========
-    
+
     // Step 1: Extract Draft from Gemini
     function handleGeminiDraft() {
         const state = getState();
         if (state !== CONFIG.STATES.WAITING_FOR_DRAFT) return;
-        
+
         log('Checking for Gemini draft response');
-        
+
         // Wait for response to appear
         setTimeout(() => {
             const response = extractGeminiResponse();
@@ -393,23 +419,23 @@
     function handleChatGPTCritique() {
         const state = getState();
         if (state !== CONFIG.STATES.WAITING_FOR_CRITIQUE) return;
-        
+
         const draft = getDraft();
         if (!draft) {
             log('No draft found in storage');
             return;
         }
-        
+
         log('Preparing to send draft to ChatGPT for critique');
         showStatus('📝 Preparing critique request...', 3000);
-        
+
         setTimeout(() => {
             const critiquePrompt = `Please provide a constructive critique of the following response. Focus on accuracy, completeness, clarity, and potential improvements:\n\n---\n${draft}\n---\n\nProvide your feedback in a structured format.`;
-            
+
             const success = insertTextIntoChatGPT(critiquePrompt);
             if (success) {
                 showStatus('✓ Critique request ready! Click Send button.', 0);
-                
+
                 // Monitor for ChatGPT response
                 const checkInterval = setInterval(() => {
                     const currentState = getState();
@@ -417,7 +443,7 @@
                         clearInterval(checkInterval);
                         return;
                     }
-                    
+
                     const response = extractChatGPTResponse();
                     if (response && response.length > CONFIG.MIN_RESPONSE_LENGTH) {
                         log('Critique extracted from ChatGPT');
@@ -427,7 +453,7 @@
                         showStatus('✓ Critique captured! Return to Gemini tab.', 0);
                     }
                 }, CONFIG.DELAYS.POLLING_INTERVAL);
-                
+
                 // Clear interval after timeout
                 setTimeout(() => clearInterval(checkInterval), CONFIG.DELAYS.WORKFLOW_TIMEOUT);
             }
@@ -438,25 +464,25 @@
     function handleGeminiFinal() {
         const state = getState();
         if (state !== CONFIG.STATES.WAITING_FOR_FINAL) return;
-        
+
         const draft = getDraft();
         const critique = getCritique();
-        
+
         if (!draft || !critique) {
             log('Missing draft or critique');
             return;
         }
-        
+
         log('Preparing final synthesis in Gemini');
         showStatus('🔄 Preparing final synthesis...', 3000);
-        
+
         setTimeout(() => {
             const finalPrompt = `Based on the following feedback, please provide an improved and synthesized final answer:\n\n**Original Response:**\n${draft}\n\n**Feedback:**\n${critique}\n\n**Please provide the final, improved response:**`;
-            
+
             const success = insertTextIntoGemini(finalPrompt);
             if (success) {
                 showStatus('✓ Final synthesis request ready! Click Send.', 0);
-                
+
                 // Monitor for final response
                 const checkInterval = setInterval(() => {
                     const currentState = getState();
@@ -464,7 +490,7 @@
                         clearInterval(checkInterval);
                         return;
                     }
-                    
+
                     const response = extractGeminiResponse();
                     if (response && response.length > CONFIG.MIN_RESPONSE_LENGTH && response !== draft) {
                         log('Final answer received from Gemini');
@@ -476,7 +502,7 @@
                         }, 5000);
                     }
                 }, CONFIG.DELAYS.POLLING_INTERVAL);
-                
+
                 // Clear interval after timeout
                 setTimeout(() => clearInterval(checkInterval), CONFIG.DELAYS.WORKFLOW_TIMEOUT);
             }
@@ -486,18 +512,18 @@
     // ========== Event Listeners ==========
     function setupGeminiListeners() {
         log('Setting up Gemini listeners');
-        
+
         // Listen for state changes
         GM_addValueChangeListener(CONFIG.STORAGE_KEYS.STATE, (name, oldValue, newValue, remote) => {
             if (remote) {
                 log('State changed remotely:', newValue);
-                
+
                 if (newValue === CONFIG.STATES.WAITING_FOR_FINAL) {
                     handleGeminiFinal();
                 }
             }
         });
-        
+
         // Monitor for form submissions
         const observer = new MutationObserver((mutations) => {
             const state = getState();
@@ -505,7 +531,7 @@
                 handleGeminiDraft();
             }
         });
-        
+
         observer.observe(document.body, {
             childList: true,
             subtree: true
@@ -514,15 +540,14 @@
 
     function setupChatGPTListeners() {
         log('Setting up ChatGPT listeners');
-        
-        // Listen for state changes
+
+        // Listen for state changes (both local and remote)
         GM_addValueChangeListener(CONFIG.STORAGE_KEYS.STATE, (name, oldValue, newValue, remote) => {
-            if (remote) {
-                log('State changed remotely:', newValue);
-                
-                if (newValue === CONFIG.STATES.WAITING_FOR_CRITIQUE) {
-                    handleChatGPTCritique();
-                }
+            log('State changed:', { newValue, remote, source: remote ? 'remote' : 'local' });
+
+            if (newValue === CONFIG.STATES.WAITING_FOR_CRITIQUE) {
+                log('Triggering ChatGPT critique handler');
+                handleChatGPTCritique();
             }
         });
     }
@@ -581,7 +606,7 @@
 
     // Expose debug object
     window.AIsHelpMe = {
-        version: '1.0.1',
+        version: '1.0.2',
         getState: () => {
             return {
                 currentState: getState(),
@@ -603,9 +628,22 @@
         reset: () => {
             clearAllStorage();
             location.reload();
+        },
+        // ChatGPT specific debug methods
+        triggerChatGPTCritique: () => {
+            log('Manually triggering ChatGPT critique');
+            handleChatGPTCritique();
+        },
+        checkChatGPTTextarea: () => {
+            const selectors = ['#prompt-textarea', 'textarea', '[contenteditable="true"]'];
+            console.log('[AIsHelpMe] Checking ChatGPT textareas:');
+            selectors.forEach(sel => {
+                const el = document.querySelector(sel);
+                console.log(`  Selector: ${sel}`, el);
+            });
         }
     };
-    
+
     function getDraftLength(text) {
         return text ? text.length + ' chars' : 'null';
     }
