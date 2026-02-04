@@ -2,8 +2,6 @@
 
 > **Zero-cost consensus bridge between Gemini and ChatGPT for multi-LLM synergy**
 
-ChatGPT, Gemini에게 의견을 물어보고 취합한 답변을 받자.
-
 ## 📖 Overview
 
 AIsHelpMe is a Tampermonkey UserScript that creates a seamless, zero-cost consensus bridge between Google Gemini and ChatGPT. It orchestrates a three-step workflow where both AI models collaborate to produce better answers through peer review and synthesis.
