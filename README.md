@@ -2,6 +2,19 @@
 
 > **Zero-cost consensus bridge between Gemini and ChatGPT for multi-LLM synergy**
 
+## ⚠️ Important Disclaimer
+
+> **🔬 Experimental Tool Notice**
+> 
+> This project is an **experimental tool** that relies on browser automation of third-party services (Google Gemini and ChatGPT). Please be aware:
+> 
+> - **UI Changes May Break Functionality**: This tool interacts with web interfaces that can change at any time. Even minor updates to CSS class names, HTML structure, or page layouts by Google or OpenAI may cause the script to stop working without notice.
+> - **Educational Purpose**: This tool is intended for **learning and experimental purposes only**. 
+> - **Terms of Service Compliance**: Users are solely responsible for ensuring their use of this tool complies with the Terms of Service of Google Gemini, ChatGPT, and any other services involved.
+> - **No Warranty**: This software is provided "as-is" under the MIT License. The authors and contributors assume no liability for any issues arising from its use.
+> 
+> By using this tool, you acknowledge and accept these limitations and responsibilities.
+
 ## 📖 Overview
 
 AIsHelpMe is a Tampermonkey UserScript that creates a seamless, zero-cost consensus bridge between Google Gemini and ChatGPT. It orchestrates a three-step workflow where both AI models collaborate to produce better answers through peer review and synthesis.
