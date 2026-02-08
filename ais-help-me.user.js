@@ -66,6 +66,10 @@
         GEMINI_FINALIZING: '제미나이 정리 중'
     };
 
+    let draftMonitorInterval = null;
+    let critiqueMonitorInterval = null;
+    let finalMonitorInterval = null;
+
     // ========== Utility Functions ==========
     function log(message, data = null) {
         const prefix = '[AIsHelpMe]';
@@ -319,6 +323,13 @@
         }
     }
 
+    function clearMonitorInterval(intervalId) {
+        if (intervalId) {
+            clearInterval(intervalId);
+        }
+        return null;
+    }
+
     // ========== Content Extraction ==========
     function waitForElement(selector, timeout = 10000) {
         return new Promise((resolve, reject) => {
@@ -538,6 +549,7 @@
     function handleGeminiDraft() {
         const state = getState();
         if (state !== CONFIG.STATES.WAITING_FOR_DRAFT) return;
+        if (draftMonitorInterval) return;
 
         log('Monitoring for Gemini draft response...');
         showStatus('⏳ Waiting for Gemini response...', 0);
@@ -548,14 +560,15 @@
     }
 
     function monitorGeminiDraftResponse() {
+        if (draftMonitorInterval) return;
         let lastText = '';
         let lastChangeAt = Date.now();
         const stableDurationMs = 4000;
 
-        const checkInterval = setInterval(() => {
+        draftMonitorInterval = setInterval(() => {
             const currentState = getState();
             if (currentState !== CONFIG.STATES.WAITING_FOR_DRAFT) {
-                clearInterval(checkInterval);
+                draftMonitorInterval = clearMonitorInterval(draftMonitorInterval);
                 return;
             }
 
@@ -574,14 +587,16 @@
                     setDraft(response);
                     setState(CONFIG.STATES.WAITING_FOR_CRITIQUE);
                     setStep(STEP_LABELS.CHATGPT_INPUT_WAIT);
-                    clearInterval(checkInterval);
+                    draftMonitorInterval = clearMonitorInterval(draftMonitorInterval);
                     showStatus('✓ Draft captured! Now open ChatGPT tab.', 0);
                 }
             }
         }, CONFIG.DELAYS.POLLING_INTERVAL);
 
         // Clear interval after timeout
-        setTimeout(() => clearInterval(checkInterval), CONFIG.DELAYS.WORKFLOW_TIMEOUT);
+        setTimeout(() => {
+            draftMonitorInterval = clearMonitorInterval(draftMonitorInterval);
+        }, CONFIG.DELAYS.WORKFLOW_TIMEOUT);
     }
 
     // Step 2: Send Draft to ChatGPT for Critique
@@ -624,14 +639,15 @@
     }
 
     function monitorChatGPTResponse() {
+        if (critiqueMonitorInterval) return;
         let lastText = '';
         let lastChangeAt = Date.now();
         const stableDurationMs = 4000;
 
-        const checkInterval = setInterval(() => {
+        critiqueMonitorInterval = setInterval(() => {
             const currentState = getState();
             if (currentState !== CONFIG.STATES.WAITING_FOR_CRITIQUE) {
-                clearInterval(checkInterval);
+                critiqueMonitorInterval = clearMonitorInterval(critiqueMonitorInterval);
                 return;
             }
 
@@ -650,14 +666,16 @@
                     setCritique(response);
                     setState(CONFIG.STATES.WAITING_FOR_FINAL);
                     setStep(STEP_LABELS.GEMINI_FINALIZING);
-                    clearInterval(checkInterval);
+                    critiqueMonitorInterval = clearMonitorInterval(critiqueMonitorInterval);
                     showStatus('✓ Critique captured! Return to Gemini tab.', 0);
                 }
             }
         }, CONFIG.DELAYS.POLLING_INTERVAL);
 
         // Clear interval after timeout
-        setTimeout(() => clearInterval(checkInterval), CONFIG.DELAYS.WORKFLOW_TIMEOUT);
+        setTimeout(() => {
+            critiqueMonitorInterval = clearMonitorInterval(critiqueMonitorInterval);
+        }, CONFIG.DELAYS.WORKFLOW_TIMEOUT);
     }
 
     // Step 3: Send Critique back to Gemini for Final Answer
@@ -702,15 +720,16 @@
     }
 
     function monitorGeminiFinalResponse() {
+        if (finalMonitorInterval) return;
         const draftResponse = getDraft();
         let lastText = '';
         let lastChangeAt = Date.now();
         const stableDurationMs = 4000;
 
-        const checkInterval = setInterval(() => {
+        finalMonitorInterval = setInterval(() => {
             const currentState = getState();
             if (currentState !== CONFIG.STATES.WAITING_FOR_FINAL) {
-                clearInterval(checkInterval);
+                finalMonitorInterval = clearMonitorInterval(finalMonitorInterval);
                 return;
             }
 
@@ -726,7 +745,7 @@
 
                 if (!isGeminiGenerating() && Date.now() - lastChangeAt >= stableDurationMs) {
                     log('✓ Final response complete');
-                    clearInterval(checkInterval);
+                    finalMonitorInterval = clearMonitorInterval(finalMonitorInterval);
                     setState(CONFIG.STATES.IDLE);
                     setStep(STEP_LABELS.IDLE);
                     showStatus('✅ Consensus flow complete!', 5000);
@@ -738,7 +757,9 @@
         }, CONFIG.DELAYS.POLLING_INTERVAL);
 
         // Clear interval after timeout
-        setTimeout(() => clearInterval(checkInterval), CONFIG.DELAYS.WORKFLOW_TIMEOUT);
+        setTimeout(() => {
+            finalMonitorInterval = clearMonitorInterval(finalMonitorInterval);
+        }, CONFIG.DELAYS.WORKFLOW_TIMEOUT);
     }
 
     // ========== Event Listeners ==========
@@ -752,23 +773,17 @@
             if (newValue === CONFIG.STATES.WAITING_FOR_FINAL) {
                 log('Triggering Gemini final handler');
                 handleGeminiFinal();
+            } else if (newValue === CONFIG.STATES.WAITING_FOR_DRAFT) {
+                log('Triggering Gemini draft handler');
+                handleGeminiDraft();
             } else if (newValue === CONFIG.STATES.IDLE) {
                 setStep(STEP_LABELS.IDLE);
+                draftMonitorInterval = clearMonitorInterval(draftMonitorInterval);
+                finalMonitorInterval = clearMonitorInterval(finalMonitorInterval);
             }
         });
 
-        // Monitor for form submissions
-        const observer = new MutationObserver((mutations) => {
-            const state = getState();
-            if (state === CONFIG.STATES.WAITING_FOR_DRAFT) {
-                handleGeminiDraft();
-            }
-        });
-
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true
-        });
+        // Avoid aggressive mutation observers to reduce page load
     }
 
     function setupChatGPTListeners() {
@@ -783,6 +798,7 @@
                 handleChatGPTCritique();
             } else if (newValue === CONFIG.STATES.IDLE) {
                 setStep(STEP_LABELS.IDLE);
+                critiqueMonitorInterval = clearMonitorInterval(critiqueMonitorInterval);
             }
         });
     }
