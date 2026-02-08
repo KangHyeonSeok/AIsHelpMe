@@ -25,7 +25,8 @@
             DRAFT: 'ais_draft',
             CRITIQUE: 'ais_critique',
             STATE: 'ais_state',
-            ORIGINAL_PROMPT: 'ais_original_prompt'
+            ORIGINAL_PROMPT: 'ais_original_prompt',
+            STEP: 'ais_step'
         },
         STATES: {
             IDLE: 'idle',
@@ -54,6 +55,15 @@
             INIT_DELAY: 2000
         },
         MIN_RESPONSE_LENGTH: 50
+    };
+
+    const STEP_LABELS = {
+        IDLE: '대기 중',
+        GEMINI_INPUT_WAIT: '제미나이 입력 대기중',
+        GEMINI_RESPONDING: '제미나이 응답중',
+        CHATGPT_INPUT_WAIT: '챗지피티 입력 대기중',
+        CHATGPT_RESPONDING: '챗지피티 응답중',
+        GEMINI_FINALIZING: '제미나이 정리 중'
     };
 
     // ========== Utility Functions ==========
@@ -119,11 +129,22 @@
         return GM_getValue(CONFIG.STORAGE_KEYS.ORIGINAL_PROMPT, null);
     }
 
+    function setStep(stepText) {
+        GM_setValue(CONFIG.STORAGE_KEYS.STEP, stepText);
+        updateStepLabel(stepText);
+        log('Step changed:', stepText);
+    }
+
+    function getStep() {
+        return GM_getValue(CONFIG.STORAGE_KEYS.STEP, null);
+    }
+
     function clearAllStorage() {
         GM_deleteValue(CONFIG.STORAGE_KEYS.DRAFT);
         GM_deleteValue(CONFIG.STORAGE_KEYS.CRITIQUE);
         GM_deleteValue(CONFIG.STORAGE_KEYS.STATE);
         GM_deleteValue(CONFIG.STORAGE_KEYS.ORIGINAL_PROMPT);
+        GM_deleteValue(CONFIG.STORAGE_KEYS.STEP);
         log('Storage cleared');
     }
 
@@ -210,6 +231,17 @@
         `;
         panel.appendChild(title);
 
+        const stepLabel = document.createElement('div');
+        stepLabel.id = 'ais-step-label';
+        stepLabel.textContent = `Step: ${getStep() || STEP_LABELS.IDLE}`;
+        stepLabel.style.cssText = `
+            margin-bottom: 10px !important;
+            color: #555 !important;
+            font-size: 12px !important;
+            display: block !important;
+        `;
+        panel.appendChild(stepLabel);
+
         const startButton = document.createElement('button');
         startButton.textContent = 'Start';
         startButton.style.cssText = `
@@ -228,6 +260,7 @@
             const platform = getCurrentPlatform();
             if (platform === 'gemini') {
                 setState(CONFIG.STATES.WAITING_FOR_DRAFT);
+                setStep(STEP_LABELS.GEMINI_INPUT_WAIT);
                 showStatus('✓ Consensus flow activated! Submit your prompt to Gemini.', 5000);
             } else {
                 showStatus('⚠ Please start the flow from Gemini', 3000);
@@ -250,6 +283,7 @@
         `;
         resetButton.onclick = () => {
             clearAllStorage();
+            setStep(STEP_LABELS.IDLE);
             showStatus('✓ Flow reset', 2000);
         };
         panel.appendChild(resetButton);
@@ -262,6 +296,26 @@
             log('✅ Control panel successfully added to DOM');
         } else {
             console.error('[AIsHelpMe] ❌ Failed to add control panel to DOM');
+        }
+    }
+
+    function updateStepLabel(stepText) {
+        const label = document.getElementById('ais-step-label');
+        if (label) {
+            label.textContent = `Step: ${stepText || STEP_LABELS.IDLE}`;
+        }
+    }
+
+    function resolveStepFromState(state) {
+        switch (state) {
+            case CONFIG.STATES.WAITING_FOR_DRAFT:
+                return STEP_LABELS.GEMINI_RESPONDING;
+            case CONFIG.STATES.WAITING_FOR_CRITIQUE:
+                return STEP_LABELS.CHATGPT_RESPONDING;
+            case CONFIG.STATES.WAITING_FOR_FINAL:
+                return STEP_LABELS.GEMINI_FINALIZING;
+            default:
+                return STEP_LABELS.IDLE;
         }
     }
 
@@ -286,22 +340,33 @@
     }
 
     function extractGeminiResponse() {
-        // Try multiple selectors to find the response
-        const selectors = [
+        const containerSelectors = [
             '.model-response-text',
-            '[data-response-chunk]',
             '.response-container-content'
         ];
 
-        for (const selector of selectors) {
-            const elements = document.querySelectorAll(selector);
-            if (elements.length > 0) {
-                const lastElement = elements[elements.length - 1];
-                const text = lastElement.innerText || lastElement.textContent;
+        for (const selector of containerSelectors) {
+            const containers = document.querySelectorAll(selector);
+            if (containers.length > 0) {
+                const lastContainer = containers[containers.length - 1];
+                const text = lastContainer.innerText || lastContainer.textContent;
                 if (text && text.trim().length > 0) {
                     return text.trim();
                 }
             }
+        }
+
+        const chunks = Array.from(document.querySelectorAll('[data-response-chunk]'));
+        if (chunks.length > 0) {
+            const lastChunk = chunks[chunks.length - 1];
+            const container = lastChunk.closest('.response-container-content, .model-response-text, [data-response-container], [data-message-id]') || lastChunk.parentElement;
+            const containerChunks = container ? container.querySelectorAll('[data-response-chunk]') : chunks;
+            const text = Array.from(containerChunks)
+                .map(el => (el.innerText || el.textContent || '').trim())
+                .filter(Boolean)
+                .join('\n')
+                .trim();
+            return text || null;
         }
 
         return null;
@@ -315,6 +380,26 @@
             return text.trim();
         }
         return null;
+    }
+
+    function isGeminiGenerating() {
+        const selectors = [
+            'button[aria-label*="Stop"]',
+            'button[aria-label*="정지"]',
+            'button[aria-label*="중지"]',
+            'button[aria-label*="취소"]'
+        ];
+        return selectors.some(selector => document.querySelector(selector));
+    }
+
+    function isChatGPTGenerating() {
+        const selectors = [
+            'button[data-testid="stop-button"]',
+            'button[aria-label*="Stop"]',
+            'button[aria-label*="정지"]',
+            'button[aria-label*="중지"]'
+        ];
+        return selectors.some(selector => document.querySelector(selector));
     }
 
     // ========== Text Insertion ==========
@@ -456,15 +541,16 @@
 
         log('Monitoring for Gemini draft response...');
         showStatus('⏳ Waiting for Gemini response...', 0);
+        setStep(STEP_LABELS.GEMINI_RESPONDING);
 
         // Start monitoring immediately
         monitorGeminiDraftResponse();
     }
 
     function monitorGeminiDraftResponse() {
-        let lastLength = 0;
-        let stableCount = 0;
-        const stabilityThreshold = 3; // 3 consecutive checks with same length
+        let lastText = '';
+        let lastChangeAt = Date.now();
+        const stableDurationMs = 4000;
 
         const checkInterval = setInterval(() => {
             const currentState = getState();
@@ -476,22 +562,20 @@
             const response = extractGeminiResponse();
 
             if (response && response.length > CONFIG.MIN_RESPONSE_LENGTH) {
-                // Check if response length is stable
-                if (response.length === lastLength) {
-                    stableCount++;
-                    log(`Draft length stable (${stableCount}/${stabilityThreshold}): ${response.length} chars`);
-
-                    if (stableCount >= stabilityThreshold) {
-                        log('✓ Draft complete, capturing');
-                        setDraft(response);
-                        setState(CONFIG.STATES.WAITING_FOR_CRITIQUE);
-                        clearInterval(checkInterval);
-                        showStatus('✓ Draft captured! Now open ChatGPT tab.', 0);
-                    }
-                } else {
-                    stableCount = 0;
-                    lastLength = response.length;
+                if (response !== lastText) {
+                    lastText = response;
+                    lastChangeAt = Date.now();
                     log(`Draft in progress: ${response.length} chars`);
+                    return;
+                }
+
+                if (!isGeminiGenerating() && Date.now() - lastChangeAt >= stableDurationMs) {
+                    log('✓ Draft complete, capturing');
+                    setDraft(response);
+                    setState(CONFIG.STATES.WAITING_FOR_CRITIQUE);
+                    setStep(STEP_LABELS.CHATGPT_INPUT_WAIT);
+                    clearInterval(checkInterval);
+                    showStatus('✓ Draft captured! Now open ChatGPT tab.', 0);
                 }
             }
         }, CONFIG.DELAYS.POLLING_INTERVAL);
@@ -513,6 +597,7 @@
 
         log('Preparing to send draft to ChatGPT for critique');
         showStatus('📝 Preparing critique request...', 3000);
+        setStep(STEP_LABELS.CHATGPT_INPUT_WAIT);
 
         setTimeout(() => {
             const critiquePrompt = `Please provide a constructive critique of the following response. Focus on accuracy, completeness, clarity, and potential improvements:\n\n---\n${draft}\n---\n\nProvide your feedback in a structured format.`;
@@ -525,9 +610,11 @@
                 setTimeout(() => {
                     if (clickChatGPTSendButton()) {
                         showStatus('⏳ Waiting for ChatGPT response...', 0);
+                        setStep(STEP_LABELS.CHATGPT_RESPONDING);
                         monitorChatGPTResponse();
                     } else {
                         showStatus('⚠️ Could not click Send. Please click manually.', 0);
+                        setStep(STEP_LABELS.CHATGPT_RESPONDING);
                         // Fallback: still monitor for response
                         monitorChatGPTResponse();
                     }
@@ -537,9 +624,9 @@
     }
 
     function monitorChatGPTResponse() {
-        let lastLength = 0;
-        let stableCount = 0;
-        const stabilityThreshold = 3; // 3 consecutive checks with same length
+        let lastText = '';
+        let lastChangeAt = Date.now();
+        const stableDurationMs = 4000;
 
         const checkInterval = setInterval(() => {
             const currentState = getState();
@@ -551,22 +638,20 @@
             const response = extractChatGPTResponse();
 
             if (response && response.length > CONFIG.MIN_RESPONSE_LENGTH) {
-                // Check if response length is stable
-                if (response.length === lastLength) {
-                    stableCount++;
-                    log(`Response length stable (${stableCount}/${stabilityThreshold}): ${response.length} chars`);
-
-                    if (stableCount >= stabilityThreshold) {
-                        log('✓ Response complete, capturing critique');
-                        setCritique(response);
-                        setState(CONFIG.STATES.WAITING_FOR_FINAL);
-                        clearInterval(checkInterval);
-                        showStatus('✓ Critique captured! Return to Gemini tab.', 0);
-                    }
-                } else {
-                    stableCount = 0;
-                    lastLength = response.length;
+                if (response !== lastText) {
+                    lastText = response;
+                    lastChangeAt = Date.now();
                     log(`Response in progress: ${response.length} chars`);
+                    return;
+                }
+
+                if (!isChatGPTGenerating() && Date.now() - lastChangeAt >= stableDurationMs) {
+                    log('✓ Response complete, capturing critique');
+                    setCritique(response);
+                    setState(CONFIG.STATES.WAITING_FOR_FINAL);
+                    setStep(STEP_LABELS.GEMINI_FINALIZING);
+                    clearInterval(checkInterval);
+                    showStatus('✓ Critique captured! Return to Gemini tab.', 0);
                 }
             }
         }, CONFIG.DELAYS.POLLING_INTERVAL);
@@ -590,6 +675,7 @@
 
         log('Preparing final synthesis in Gemini');
         showStatus('🔄 Preparing final synthesis...', 3000);
+        setStep(STEP_LABELS.GEMINI_FINALIZING);
 
         setTimeout(() => {
             const finalPrompt = `Based on the following feedback, please provide an improved and synthesized final answer:\n\n**Original Response:**\n${draft}\n\n**Feedback:**\n${critique}\n\n**Please provide the final, improved response:**`;
@@ -602,9 +688,11 @@
                 setTimeout(() => {
                     if (clickGeminiSendButton()) {
                         showStatus('⏳ Waiting for final response...', 0);
+                        setStep(STEP_LABELS.GEMINI_FINALIZING);
                         monitorGeminiFinalResponse();
                     } else {
                         showStatus('⚠️ Could not click Send. Please click manually.', 0);
+                        setStep(STEP_LABELS.GEMINI_FINALIZING);
                         // Fallback: still monitor for response
                         monitorGeminiFinalResponse();
                     }
@@ -615,9 +703,9 @@
 
     function monitorGeminiFinalResponse() {
         const draftResponse = getDraft();
-        let lastLength = 0;
-        let stableCount = 0;
-        const stabilityThreshold = 3; // 3 consecutive checks with same length
+        let lastText = '';
+        let lastChangeAt = Date.now();
+        const stableDurationMs = 4000;
 
         const checkInterval = setInterval(() => {
             const currentState = getState();
@@ -629,24 +717,22 @@
             const response = extractGeminiResponse();
 
             if (response && response.length > CONFIG.MIN_RESPONSE_LENGTH && response !== draftResponse) {
-                // Check if response length is stable
-                if (response.length === lastLength) {
-                    stableCount++;
-                    log(`Final response length stable (${stableCount}/${stabilityThreshold}): ${response.length} chars`);
-
-                    if (stableCount >= stabilityThreshold) {
-                        log('✓ Final response complete');
-                        clearInterval(checkInterval);
-                        setState(CONFIG.STATES.IDLE);
-                        showStatus('✅ Consensus flow complete!', 5000);
-                        setTimeout(() => {
-                            clearAllStorage();
-                        }, 5000);
-                    }
-                } else {
-                    stableCount = 0;
-                    lastLength = response.length;
+                if (response !== lastText) {
+                    lastText = response;
+                    lastChangeAt = Date.now();
                     log(`Final response in progress: ${response.length} chars`);
+                    return;
+                }
+
+                if (!isGeminiGenerating() && Date.now() - lastChangeAt >= stableDurationMs) {
+                    log('✓ Final response complete');
+                    clearInterval(checkInterval);
+                    setState(CONFIG.STATES.IDLE);
+                    setStep(STEP_LABELS.IDLE);
+                    showStatus('✅ Consensus flow complete!', 5000);
+                    setTimeout(() => {
+                        clearAllStorage();
+                    }, 5000);
                 }
             }
         }, CONFIG.DELAYS.POLLING_INTERVAL);
@@ -666,6 +752,8 @@
             if (newValue === CONFIG.STATES.WAITING_FOR_FINAL) {
                 log('Triggering Gemini final handler');
                 handleGeminiFinal();
+            } else if (newValue === CONFIG.STATES.IDLE) {
+                setStep(STEP_LABELS.IDLE);
             }
         });
 
@@ -693,6 +781,8 @@
             if (newValue === CONFIG.STATES.WAITING_FOR_CRITIQUE) {
                 log('Triggering ChatGPT critique handler');
                 handleChatGPTCritique();
+            } else if (newValue === CONFIG.STATES.IDLE) {
+                setStep(STEP_LABELS.IDLE);
             }
         });
     }
@@ -719,7 +809,18 @@
             setTimeout(() => {
                 createControlPanel();
                 log('✓ Control panel initialization triggered');
+                const storedStep = getStep();
+                if (storedStep) {
+                    updateStepLabel(storedStep);
+                } else {
+                    const currentState = getState();
+                    updateStepLabel(resolveStepFromState(currentState));
+                }
             }, 1000);
+
+            GM_addValueChangeListener(CONFIG.STORAGE_KEYS.STEP, (name, oldValue, newValue) => {
+                updateStepLabel(newValue);
+            });
 
             if (platform === 'gemini') {
                 setupGeminiListeners();
@@ -730,6 +831,7 @@
                     handleGeminiFinal();
                 } else if (state === CONFIG.STATES.WAITING_FOR_DRAFT) {
                     showStatus('👂 Listening for draft response...', 0);
+                    setStep(STEP_LABELS.GEMINI_RESPONDING);
                 }
             } else if (platform === 'chatgpt') {
                 setupChatGPTListeners();
